@@ -117,6 +117,22 @@ class JupyterHubAuthPlugin(BaseAuthPlugin):
                 self.log.info("Jupyterhub group: {group_name} created.".format(
                     group_name=group_name))
 
+            student_name = "{}".format(student_id)
+            jup_users = _query_jupyterhub_api(
+                method="GET",
+                api_path="/users",
+            )
+            if student_name not in [x['name'] for x in jup_users]:
+                # This could result in a bad request(JupyterhubApiError) if
+                # the user doesn't exist so first we check above if there is a
+                # student with this id
+                _query_jupyterhub_api(
+                    method="POST",
+                    api_path="/users/{name}".format(name=student_name),
+                )
+                self.log.info("Jupyterhub user: {student_name} created.".format(
+                    student_name=student_name))
+
             _query_jupyterhub_api(
                 method="POST",
                 api_path="/groups/{name}/users".format(name=group_name),
