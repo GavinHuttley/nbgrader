@@ -3,7 +3,7 @@
 set -e
 
 # Configuration variables.
-root="/root"
+demos_root="$(pwd)"
 srv_root="/srv/nbgrader"
 nbgrader_root="/srv/nbgrader/nbgrader"
 jupyterhub_root="/srv/nbgrader/jupyterhub"
@@ -83,7 +83,7 @@ restart_demo () {
 
     # Setup the specific demo.
     echo "Setting up demo '${demo}'..."
-    cd "${root}/${demo}"
+    cd "${demos_root}/${demo}"
     source setup_demo.sh
     setup_demo "${jupyterhub_root}"
 
