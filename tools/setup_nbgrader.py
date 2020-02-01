@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 import argparse
 import subprocess
+import requests
+from requests.exceptions import HTTPError
 import os
 import stat
 import pwd
 import re
-
+import random
+import string
 
 JUPYTER_ADMIN = 'jupyteradmin'
 ADMIN_PWD = 'password'
@@ -23,6 +26,19 @@ class CourseAlreadyExists(Exception):
         else:
             return 'Course already exists'
 
+class CourseDoesNotExist(Exception):
+    def __init__(self, *args):
+        if args:
+            self.message = args[0]
+        else:
+            self.message = None
+
+    def __str__(self):
+        if self.message:
+            return "Course {0} doesn't exists".format(self.message)
+        else:
+            return "Course doesn't exist"
+
 class MalformedCsvFile(Exception):
     def __init__(self, *args):
         if args:
@@ -35,6 +51,24 @@ class MalformedCsvFile(Exception):
             return 'Wrong csv headers : {}'.format(self.message)
         else:
             return 'Wrong csv headers'
+
+class MissingParameter(Exception):
+    def __init__(self, *args):
+        if args:
+            self.message = args[0]
+        else:
+            self.message = None
+
+    def __str__(self):
+        if self.message:
+            return 'Missing parameter : {}'.format(self.message)
+        else:
+            return 'Missing parameter'
+
+def randomString(stringLength=10):
+    """Generate a random string of fixed length """
+    letters = string.ascii_lowercase
+    return ''.join(random.choice(letters) for i in range(stringLength))
 
 deps = [
 'apt update',
@@ -51,6 +85,7 @@ nbgrader_root="/srv/nbgrader/nbgrader"
 jupyterhub_root="/srv/nbgrader/jupyterhub"
 exchange_root="/srv/nbgrader/exchange"
 jh_config_file = os.path.join(jupyterhub_root,'jupyterhub_config.py')
+
 
 
 # global nbgrader config
@@ -95,8 +130,32 @@ c.CourseDirectory.root = '/home/{grader}/{course}'
 c.CourseDirectory.course_id = '{course}'
 """
 
+def call_api(method, path, datas=None):
+    dispatcher = {
+        'get': requests.get,
+        'post': requests.post,
+        'delete': requests.delete,
+        'patch': requests.patch
+    }
+    try:
+        func=dispatcher[method]
+    except KeyError:
+        raise ValueError('invalid method')
+    
+    api_url = 'http://127.0.0.1:8081/hub/api'
+    token = get_token_from_config()
+    r = func(os.path.join(api_url,path),
+        headers={
+                 'Authorization': 'token {}'.format(token),
+                },
+        json=datas
+    )
+    r.raise_for_status()
+    return r.json()
+    
+
 def get_service_repr(course, grader, port, token):
-  service = {
+    service = {
           'name': course,
           'url': 'http://127.0.0.1:{}'.format(port),
           'command': [
@@ -107,8 +166,8 @@ def get_service_repr(course, grader, port, token):
           'user': grader,
           'cwd': '/home/{}'.format(grader),
           'api_token': '{}'.format(token),
-  }  
-  return repr(service)
+    }  
+    return repr(service)
 
 def get_course_config(grader, course):
     return course_config_base.format(grader=grader, course=course)
@@ -127,16 +186,6 @@ def get_next_port():
         cfg.writelines(lines)
     return int(port)
 
-def add_system_user(username, password):
-    os.system('adduser --disabled-password --gecos "" {}'.format(username))
-    with subprocess.Popen(['passwd',username], stdin=subprocess.PIPE, encoding='utf-8') as proc:
-        proc.stdin.write('{}\n'.format(password))
-        proc.stdin.write('{}\n'.format(password))
-
-def add_jupyter_admin(username):
-    with open(jh_config_file, "a") as f:
-        f.write("c.Authenticator.admin_users.add('{}')\n".format(username))
-
 def get_token_for_user(user):
     with subprocess.Popen(['jupyterhub','token',user], stdout=subprocess.PIPE, encoding='utf-8', cwd=jupyterhub_root) as proc:
         token=proc.stdout.read().rstrip()
@@ -149,16 +198,6 @@ def get_token_from_config():
     token = token_line.split(sep="=")[1]
     token = token.split(sep="'")[1]
     return token
-
-def add_jupyter_grader(grader, course):
-    append_group = "c.JupyterHub.load_groups.setdefault('formgrade-{}',[]).append('{}')\n".format(course,grader)
-    with open(jh_config_file, "a") as f:
-        f.write(append_group)
-
-def add_jupyter_students_group(course):
-    append_group = "c.JupyterHub.load_groups.setdefault('nbgrader-{}',[])\n".format(course)
-    with open(jh_config_file, "a") as f:
-        f.write(append_group)
 
 def toggle_nbgrader_component(user, component, enable=True):
     if component not in ['create_assignment','formgrader','assignment_list','course_list']:
@@ -181,68 +220,149 @@ def toggle_nbgrader_component(user, component, enable=True):
                         '--user',"nbgrader.server_extensions.{}".format(component)],
                         env={'HOME':home,'USER':user})
 
+### For course management
+#########################
+def add_jupyter_grader(grader, course):
+    append_group = "c.JupyterHub.load_groups.setdefault('formgrade-{}',[]).append('{}')\n".format(course, grader)
+    with open(jh_config_file, "a") as f:
+        f.write(append_group)
+
+def add_jupyter_students_group(course):
+    append_group = "c.JupyterHub.load_groups.setdefault('nbgrader-{}',[])\n".format(course)
+    with open(jh_config_file, "a") as f:
+        f.write(append_group)
+
+def add_jupyter_admin(username):
+    with open(jh_config_file, "a") as f:
+        f.write("c.Authenticator.admin_users.add('{}')\n".format(username))
+
 def add_course(args):
     course = args.course_name
-    admin_token = get_token_from_config()
-    port = get_next_port()
     grader_account = "grader-{}".format(course)
+    # check if course exists in config
     with open(jh_config_file, 'r') as f :
         if grader_account in f.read():
             raise CourseAlreadyExists('{}'.format(course))
+    admin_token = get_token_from_config()
+    port = get_next_port()
     print("setting up service with token {} on port {} for course {}".format(admin_token, port, course))
+    print("---------------------------------------------------------")
+    # Add grader account's password
     try:
         pwd.getpwnam(grader_account)
+        # should not get here
     except KeyError:
-        # TODO fix password
-        add_system_user(grader_account, grader_account)
+        os.system('adduser --disabled-password --gecos "" {}'.format(grader_account))
+        password = randomString()
+        with subprocess.Popen(['passwd',grader_account], stdin=subprocess.PIPE, encoding='utf-8') as proc:
+            proc.stdin.write('{}\n'.format(password))
+            proc.stdin.write('{}\n'.format(password))
+
     # need admin rights to add system users
     add_jupyter_admin(grader_account)
     add_jupyter_grader(grader_account, course)
+    # empty students group
+    add_jupyter_students_group(course)
     
     toggle_nbgrader_component(grader_account, 'formgrader')
     toggle_nbgrader_component(grader_account, 'create_assignment')
     
-    add_jupyter_students_group(course)
     with open(jh_config_file,'a') as f:
+        # Append service
         service_string = get_service_repr(course,grader_account,port,admin_token)
         f.write("c.JupyterHub.services.append({})\n".format(service_string))
+    # create course directory and .jupyter/nbgrader_config.py
     user = pwd.getpwnam(grader_account)
     home = user.pw_dir
     uid = user.pw_uid
     gid = user.pw_gid
-    course_dir = os.path.join(home,course)
+    course_dir = os.path.join(home, course)
     os.makedirs(course_dir, exist_ok=True)
     os.chown(course_dir, uid, gid)
-    home_jupyter_dir = os.path.join(home,'.jupyter')
+    home_jupyter_dir = os.path.join(home, '.jupyter')
     os.makedirs(home_jupyter_dir, exist_ok=True)
     os.chown(home_jupyter_dir, uid, gid)
     with open(os.path.join(home_jupyter_dir,'nbgrader_config.py'),'w') as f:
         f.write(get_course_config(grader_account, course))
-    # TODO reload if service file
-   
+    os.system('systemctl restart jupyterhub')
+
+def check_course_exists(course):
+    # check if group exists
+    try:
+        call_api('get', 'services/{}'.format(course))
+    except HTTPError as e:
+        if e.response.status_code == 404:
+            raise CourseDoesNotExist(course)
+        # Whatever, we raise
+        raise
+
+def add_grader(grader, course):
+    # add jupyter user if necessary
+    try:
+        call_api('post',
+                 'users/{}'.format(grader))
+    except HTTPError as e:
+        if e.response.status_code == 409:
+            print('{} already present'.format(grader))
+        else:
+            # We raise if something went wrong
+            raise
+        
+    # add grader to course
+    call_api('post',
+                'groups/formgrade-{}/users'.format(course),
+                datas={'users':[grader]})
+
+    # ensure teacher is admin
+    call_api('patch','users/{}'.format(grader), datas={'admin':True})
+    
 def add_teacher(args):
-    print('Adding teacher {} to course : {}'.format(args.teacher_name, args.course_name))
     course = args.course_name
     teacher = args.teacher_name
+    password = args.password
+    check_course_exists(course)
+
+    print('- Adding teacher {} to course : {}'.format(args.teacher_name, args.course_name))
+    print('------------------------------------')
+    
+    # Check for, add and update teacher's password
     try:
         pwd.getpwnam(teacher)
     except KeyError:
-        # TODO fix password
-        add_system_user(teacher, teacher)
-    # need admin rights to list courses
-    # TODO check if already in group
-    add_jupyter_admin(teacher)
-    add_jupyter_grader(teacher, course)
+        if not password:
+            raise MissingParameter('--password')
+        os.system('adduser --disabled-password --gecos "" {}'.format(teacher))
+        print(password)
+        with subprocess.Popen(['passwd',teacher], stdin=subprocess.PIPE, encoding='utf-8') as proc:
+            proc.stdin.write('{}\n'.format(password))
+            proc.stdin.write('{}\n'.format(password))
     
+    # update grader's group
+    add_grader(teacher, course)
+    
+    # setup web UI
     toggle_nbgrader_component(teacher, 'assignment_list')
     toggle_nbgrader_component(teacher, 'course_list')
-    # TODO reload if service file
+    # TODO restart needed ?
 
 def add_student(args):
     student = args.sudent_id
+    password = args.password
     course = args.course_name
+    check_course_exists(course)
+    print("- Adding student {} to course : {}".format(student, course))
+    print("------------------------------")
+    try:
+        pwd.getpwnam(student)
+        already_exists = True
+    except KeyError:
+        if not password:
+            raise MissingParameter('--password')
+        already_exists = False
+    
     grader = "grader-{}".format(course)
     token = get_token_from_config()
+    # command will create system user if necessary
     command = ['sudo','-u',grader,
             'JUPYTERHUB_USER={}'.format(grader),
             "JUPYTERHUB_API_TOKEN={}".format(token),
@@ -256,38 +376,44 @@ def add_student(args):
                cwd='/home/{grader}/{course}'.format(grader=grader,course=course),
                env={'HOME':'/home/{grader}'.format(grader=grader),
                     'USER':grader})
-    with subprocess.Popen(['passwd',student], stdin=subprocess.PIPE, encoding='utf-8') as proc:
-        proc.stdin.write('{}\n'.format(args.password))
-        proc.stdin.write('{}\n'.format(args.password))
+    
+    if not already_exists :
+        with subprocess.Popen(['passwd', student], stdin=subprocess.PIPE, encoding='utf-8') as proc:
+            proc.stdin.write('{}\n'.format(password))
+            proc.stdin.write('{}\n'.format(password))
     toggle_nbgrader_component(student, 'assignment_list')
-    # TODO restart hub
+    # TODO restart hub ?
 
 def import_students(args):
     course = args.course
+    check_course_exists(course)
     student_parser = args.student_parser
+    print("- Importing students from file {} to course {}".format(args.file, course))
+    print("---------------------------------------------")
     with open(args.file) as f:
         first_line = f.readline()
         header_data = [d.rstrip() for d in re.split(',|;', first_line)]
-        headers = ['id','first_name','last_name','email','lms_id','password']
+        headers = ['id','first_name','last_name','email','lms_user_id','password']
         if header_data != headers:
             raise MalformedCsvFile(header_data)
         data_line = f.readline()
         while data_line: # TODO empty or malformed lines
             datas = [d.rstrip() for d in re.split(',|;', data_line)]
             ns = student_parser.parse_args([
-                course,
                 datas[0], # id
-                datas[5], # password
+                course,
                 "--first-name={}".format(datas[1]),
                 "--last-name={}".format(datas[2]),
                 "--email={}".format(datas[3]),
                 "--lms-user-id={}".format(datas[4]),
+                "--password={}".format(datas[5]),
                 ])
             add_student(ns)
             data_line = f.readline()
 
 def install_all(args):
-    print('Installing jupyterhub and nbgrader with service : {}'.format(args.systemd))
+    print('- Installing jupyterhub and nbgrader with service : {}'.format(args.systemd))
+    print('----------------------------------------------------')
     for dep in deps:
         os.system(dep)
     os.makedirs(srv_root, exist_ok=True)
@@ -324,8 +450,12 @@ def install_all(args):
         f.write(nbgrader_global_config)
 
     # add jupyterhub admin
-    add_system_user(JUPYTER_ADMIN,ADMIN_PWD)
+    os.system('adduser --disabled-password --gecos "" {}'.format(JUPYTER_ADMIN))
+    with subprocess.Popen(['passwd',JUPYTER_ADMIN], stdin=subprocess.PIPE, encoding='utf-8') as proc:
+        proc.stdin.write('{}\n'.format(ADMIN_PWD))
+        proc.stdin.write('{}\n'.format(ADMIN_PWD))
     add_jupyter_admin(JUPYTER_ADMIN)
+
     token = get_token_for_user(JUPYTER_ADMIN)
     with open(jh_config_file, "a") as f:
         f.write("admin_token='{}'\n".format(token))
@@ -360,7 +490,7 @@ def main():
     parser_install.set_defaults(func=install_all)
 
     # create the parser for the "add" command
-    parser_add = subparsers.add_parser('add', help='add a course or a teacher')
+    parser_add = subparsers.add_parser('add', help='add a course, a teacher or a student')
 
     subparsers_add = parser_add.add_subparsers(dest='element')
     subparsers_add.required = True
@@ -371,19 +501,20 @@ def main():
 
     # ADD TEACHER TO COURSE
     parser_add_teacher = subparsers_add.add_parser('teacher', help='add teacher to existing course')
-    parser_add_teacher.add_argument('teacher_name', help='the name of the teacher to add')
+    parser_add_teacher.add_argument('teacher_name', help='the username of the teacher to add')
     parser_add_teacher.add_argument('course_name', help='the name of the course')
+    parser_add_teacher.add_argument('--password', help='required if teacher is created')
     parser_add_teacher.set_defaults(func=add_teacher)
 
     # ADD STUDENT TO COURSE
     parser_add_student = subparsers_add.add_parser('student', help='add student to existing course')
-    parser_add_student.add_argument('course_name', help='the name of the course')
     parser_add_student.add_argument('sudent_id', help='the id of the student to add')
+    parser_add_student.add_argument('course_name', help='the name of the course')
     parser_add_student.add_argument('--first-name', help='the first name of the student to add')
     parser_add_student.add_argument('--last-name', help='the last name of the student to add')
     parser_add_student.add_argument('--email', help='the student\'s email')
     parser_add_student.add_argument('--lms-user-id', help='the lms_id of the student')
-    parser_add_student.add_argument('password', help='the student\'s password')
+    parser_add_student.add_argument('--password', help='required if teacher is created')
     parser_add_student.set_defaults(func=add_student)
 
     # create the parser for the "import" command
@@ -395,9 +526,10 @@ def main():
     s = parser.parse_args()
     try:
         s.func(s)
-    except CourseAlreadyExists as e:
+    except (CourseAlreadyExists, CourseDoesNotExist) as e:
         print(e)
 
 if __name__ == "__main__":
     # execute only if run as a script
     main()
+
