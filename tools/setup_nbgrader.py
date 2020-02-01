@@ -4,16 +4,37 @@ import subprocess
 import os
 import stat
 import pwd
+import re
 
 
 JUPYTER_ADMIN = 'jupyteradmin'
 ADMIN_PWD = 'password'
 
 class CourseAlreadyExists(Exception):
-    def __init__(self, message):
-        # Call the base class constructor with the parameters it needs
-        super(CourseAlreadyExists, self).__init__(message)
+    def __init__(self, *args):
+        if args:
+            self.message = args[0]
+        else:
+            self.message = None
 
+    def __str__(self):
+        if self.message:
+            return 'Course {0} already exists'.format(self.message)
+        else:
+            return 'Course already exists'
+
+class MalformedCsvFile(Exception):
+    def __init__(self, *args):
+        if args:
+            self.message = args[0]
+        else:
+            self.message = None
+
+    def __str__(self):
+        if self.message:
+            return 'Wrong csv headers : {}'.format(self.message)
+        else:
+            return 'Wrong csv headers'
 
 deps = [
 'apt update',
@@ -29,7 +50,6 @@ srv_root="/srv/nbgrader"
 nbgrader_root="/srv/nbgrader/nbgrader"
 jupyterhub_root="/srv/nbgrader/jupyterhub"
 exchange_root="/srv/nbgrader/exchange"
-
 jh_config_file = os.path.join(jupyterhub_root,'jupyterhub_config.py')
 
 
@@ -50,7 +70,7 @@ c.JupyterHub.load_groups = {}
 c.JupyterHub.services = []
 next_port=9999
 ### End of basic config
-
+########################
 """
 
 # Jupyterhub service
@@ -70,7 +90,11 @@ StandardError=file:/var/log/jupyterhub-error.log
 WantedBy=multi-user.target
 """
 
-# Base service
+course_config_base="""c = get_config()
+c.CourseDirectory.root = '/home/{grader}/{course}'
+c.CourseDirectory.course_id = '{course}'
+"""
+
 def get_service_repr(course, grader, port, token):
   service = {
           'name': course,
@@ -86,11 +110,6 @@ def get_service_repr(course, grader, port, token):
   }  
   return repr(service)
 
-course_config_base="""c = get_config()
-c.CourseDirectory.root = '/home/{grader}/{course}'
-c.CourseDirectory.course_id = '{course}'
-"""
-
 def get_course_config(grader, course):
     return course_config_base.format(grader=grader, course=course)
 
@@ -104,7 +123,7 @@ def get_next_port():
                 lines.append('{}={}\n'.format(left,next_port))
             else:
                 lines.append(i)
-    with open(jh_config_file,'w+') as cfg:
+    with open(jh_config_file,'w') as cfg:
         cfg.writelines(lines)
     return int(port)
 
@@ -167,10 +186,10 @@ def add_course(args):
     admin_token = get_token_from_config()
     port = get_next_port()
     grader_account = "grader-{}".format(course)
-    # TODO course already exists
+    with open(jh_config_file, 'r') as f :
+        if grader_account in f.read():
+            raise CourseAlreadyExists('{}'.format(course))
     print("setting up service with token {} on port {} for course {}".format(admin_token, port, course))
-    # TODO raise exception if course already exists ?
-    # at least, don't add id as a service
     try:
         pwd.getpwnam(grader_account)
     except KeyError:
@@ -197,7 +216,6 @@ def add_course(args):
     home_jupyter_dir = os.path.join(home,'.jupyter')
     os.makedirs(home_jupyter_dir, exist_ok=True)
     os.chown(home_jupyter_dir, uid, gid)
-    # TODO find w+
     with open(os.path.join(home_jupyter_dir,'nbgrader_config.py'),'w') as f:
         f.write(get_course_config(grader_account, course))
     # TODO reload if service file
@@ -220,8 +238,53 @@ def add_teacher(args):
     toggle_nbgrader_component(teacher, 'course_list')
     # TODO reload if service file
 
+def add_student(args):
+    student = args.sudent_id
+    course = args.course_name
+    grader = "grader-{}".format(course)
+    token = get_token_from_config()
+    command = ['sudo','-u',grader,
+            'JUPYTERHUB_USER={}'.format(grader),
+            "JUPYTERHUB_API_TOKEN={}".format(token),
+            'nbgrader', 'db', 'student', 'add', student,
+            '--first-name={}'.format(args.first_name),
+            '--last-name={}'.format(args.last_name),
+            '--email={}'.format(args.email),
+            '--lms-user-id={}'.format(args.lms_user_id)
+            ]
+    subprocess.run(command,
+               cwd='/home/{grader}/{course}'.format(grader=grader,course=course),
+               env={'HOME':'/home/{grader}'.format(grader=grader),
+                    'USER':grader})
+    with subprocess.Popen(['passwd',student], stdin=subprocess.PIPE, encoding='utf-8') as proc:
+        proc.stdin.write('{}\n'.format(args.password))
+        proc.stdin.write('{}\n'.format(args.password))
+    toggle_nbgrader_component(student, 'assignment_list')
+    # TODO restart hub
 
-
+def import_students(args):
+    course = args.course
+    student_parser = args.student_parser
+    with open(args.file) as f:
+        first_line = f.readline()
+        header_data = [d.rstrip() for d in re.split(',|;', first_line)]
+        headers = ['id','first_name','last_name','email','lms_id','password']
+        if header_data != headers:
+            raise MalformedCsvFile(header_data)
+        data_line = f.readline()
+        while data_line: # TODO empty or malformed lines
+            datas = [d.rstrip() for d in re.split(',|;', data_line)]
+            ns = student_parser.parse_args([
+                course,
+                datas[0], # id
+                datas[5], # password
+                "--first-name={}".format(datas[1]),
+                "--last-name={}".format(datas[2]),
+                "--email={}".format(datas[3]),
+                "--lms-user-id={}".format(datas[4]),
+                ])
+            add_student(ns)
+            data_line = f.readline()
 
 def install_all(args):
     print('Installing jupyterhub and nbgrader with service : {}'.format(args.systemd))
@@ -233,7 +296,7 @@ def install_all(args):
     os.chmod(nbgrader_root, os.stat(nbgrader_root).st_mode | 0o444)
     os.makedirs(jupyterhub_root, exist_ok=True)
     os.chmod(jupyterhub_root, os.stat(jupyterhub_root).st_mode | 0o444)
-    with open(jh_config_file, "w+") as f:
+    with open(jh_config_file, "w") as f:
         f.write(jupyterhub_config)
 
     curdir = os.getcwd()
@@ -271,12 +334,11 @@ def install_all(args):
     os.system('systemctl start jupyterhub')
     os.system('systemctl enable jupyterhub')
 
-
-parser = argparse.ArgumentParser()
+def import_students_stub(args):
+    print("Importing students to course '{}' from file : {}".format(args.course, args.file))
 
 def install_stub(args):
     print('Installing jupyterhub and nbgrader with service : {}'.format(args.systemd))
-
 
 def add_course_stub(args):
     print('Installing course : {}'.format(args.course_name))
@@ -284,7 +346,12 @@ def add_course_stub(args):
 def add_teacher_stub(args):
     print('Adding teacher {} to course : {}'.format(args.teacher_name, args.course_name))
 
+def add_student_stub(args):
+    print(args)
+    
 def main():
+    parser = argparse.ArgumentParser()
+
     subparsers = parser.add_subparsers(dest='command')
     subparsers.required = True
     # create the parser for the "install" command
@@ -308,8 +375,28 @@ def main():
     parser_add_teacher.add_argument('course_name', help='the name of the course')
     parser_add_teacher.set_defaults(func=add_teacher)
 
+    # ADD STUDENT TO COURSE
+    parser_add_student = subparsers_add.add_parser('student', help='add student to existing course')
+    parser_add_student.add_argument('course_name', help='the name of the course')
+    parser_add_student.add_argument('sudent_id', help='the id of the student to add')
+    parser_add_student.add_argument('--first-name', help='the first name of the student to add')
+    parser_add_student.add_argument('--last-name', help='the last name of the student to add')
+    parser_add_student.add_argument('--email', help='the student\'s email')
+    parser_add_student.add_argument('--lms-user-id', help='the lms_id of the student')
+    parser_add_student.add_argument('password', help='the student\'s password')
+    parser_add_student.set_defaults(func=add_student)
+
+    # create the parser for the "import" command
+    parser_import = subparsers.add_parser('import', help='import students to course from a file')
+    parser_import.add_argument('file', help='file to import')
+    parser_import.add_argument('course', help='course to add student to')
+    parser_import.set_defaults(func=import_students, student_parser=parser_add_student)
+
     s = parser.parse_args()
-    s.func(s)
+    try:
+        s.func(s)
+    except CourseAlreadyExists as e:
+        print(e)
 
 if __name__ == "__main__":
     # execute only if run as a script
