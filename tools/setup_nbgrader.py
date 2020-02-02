@@ -332,7 +332,6 @@ def add_teacher(args):
         if not password:
             raise MissingParameter('--password')
         os.system('adduser --disabled-password --gecos "" {}'.format(teacher))
-        print(password)
         with subprocess.Popen(['passwd',teacher], stdin=subprocess.PIPE, encoding='utf-8') as proc:
             proc.stdin.write('{}\n'.format(password))
             proc.stdin.write('{}\n'.format(password))
