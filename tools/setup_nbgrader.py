@@ -12,7 +12,7 @@ import string
 
 JUPYTER_ADMIN = 'jupyteradmin'
 ADMIN_PWD = 'password'
-HOME = "/home2" if os.path.exists("/home2") else "home"
+HOME = "/home2" if os.path.exists("/home2") else "/home"
 
 class CourseAlreadyExists(Exception):
     def __init__(self, *args):
