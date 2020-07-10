@@ -113,14 +113,14 @@ After=syslog.target network.target
 [Service]
 User=root
 Environment="PATH=/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
-ExecStart=/usr/local/bin/jupyterhub -f /srv/nbgrader/jupyterhub/jupyterhub_config.py
-WorkingDirectory=/srv/nbgrader/jupyterhub/
+ExecStart=/usr/local/bin/jupyterhub -f {HOME}/srv/nbgrader/jupyterhub/jupyterhub_config.py
+WorkingDirectory={HOME}/srv/nbgrader/jupyterhub/
 StandardOutput=file:/var/log/jupyterhub.log
 StandardError=file:/var/log/jupyterhub-error.log
 
 [Install]
 WantedBy=multi-user.target
-"""
+""".format(HOME=HOME)
 
 course_config_base = """c = get_config()
 c.CourseDirectory.root = '/{HOME}/{grader}/{course}'
