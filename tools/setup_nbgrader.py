@@ -78,10 +78,10 @@ def randomString(stringLength=10):
     return "".join(random.choice(letters) for i in range(stringLength))
 
 
-srv_root = "/srv/nbgrader"
-nbgrader_root = "/srv/nbgrader/nbgrader"
-jupyterhub_root = "/srv/nbgrader/jupyterhub"
-exchange_root = "/srv/nbgrader/exchange"
+srv_root = f"{HOME}/srv/nbgrader"
+nbgrader_root = f"{HOME}/srv/nbgrader/nbgrader"
+jupyterhub_root = f"{HOME}/srv/nbgrader/jupyterhub"
+exchange_root = f"{HOME}/srv/nbgrader/exchange"
 jh_config_file = os.path.join(jupyterhub_root, "jupyterhub_config.py")
 
 
