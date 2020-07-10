@@ -71,16 +71,6 @@ def randomString(stringLength=10):
     letters = string.ascii_lowercase
     return ''.join(random.choice(letters) for i in range(stringLength))
 
-deps = [
-'apt update',
-'apt upgrade -o Dpkg::Options::="--force-confold" --force-yes -y',
-'apt install -y npm',
-'npm install -g configurable-http-proxy',
-'apt install -y python3-pip',
-'pip3 install -U jupyter',
-'pip3 install -U jupyterhub',
-]
-
 srv_root="/srv/nbgrader"
 nbgrader_root="/srv/nbgrader/nbgrader"
 jupyterhub_root="/srv/nbgrader/jupyterhub"
@@ -414,8 +404,7 @@ def import_students(args):
 def install_all(args):
     print('- Installing jupyterhub and nbgrader with service : {}'.format(args.systemd))
     print('----------------------------------------------------')
-    for dep in deps:
-        os.system(dep)
+
     os.makedirs(srv_root, exist_ok=True)
     os.chmod(srv_root, os.stat(srv_root).st_mode | 0o444)
     os.makedirs(nbgrader_root, exist_ok=True)
