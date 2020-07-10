@@ -89,7 +89,7 @@ class ExtractorPlugin(BasePlugin):
                     dest = os.path.join(extract_to, os.path.basename(zfile))
                     self.log.info("Copying from: {}".format(zfile))
                     self.log.info("  Copying to: {}".format(dest))
-                    shutil.copy(zfile, dest)
+                    shutil.copy(zfile, dest, follow_symlinks=False)
 
 
 class FileNameCollectorPlugin(BasePlugin):

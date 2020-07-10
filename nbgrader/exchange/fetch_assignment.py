@@ -67,7 +67,7 @@ class ExchangeFetchAssignment(Exchange):
 
                 else:
                     self.log.warning("Replacing missing file '%s'", relpath)
-                    shutil.copy(srcpath, destpath)
+                    shutil.copy(srcpath, destpath, follow_symlinks=False)
 
             if os.path.isdir(srcpath):
                 self.copy_if_missing(srcpath, destpath, ignore=ignore)
@@ -77,7 +77,7 @@ class ExchangeFetchAssignment(Exchange):
         if os.path.isdir(self.dest_path):
             self.copy_if_missing(src, dest, ignore=shutil.ignore_patterns(*self.coursedir.ignore))
         else:
-            shutil.copytree(src, dest, ignore=shutil.ignore_patterns(*self.coursedir.ignore))
+            shutil.copytree(src, dest, symlinks=True, ignore=shutil.ignore_patterns(*self.coursedir.ignore))
 
     def copy_files(self):
         self.log.info("Source: {}".format(self.src_path))

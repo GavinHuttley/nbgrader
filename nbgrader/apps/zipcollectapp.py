@@ -454,7 +454,7 @@ class ZipCollectApp(NbGrader):
                         "Trying to overwrite existing file: {}".format(dest))
                 self.log.info('Copying from: {}'.format(src))
                 self.log.info('  Copying to: {}'.format(dest))
-                shutil.copy(src, dest)
+                shutil.copy(src, dest, follow_symlinks=False)
 
             dest = os.path.join(dest_path, 'timestamp.txt')
             if os.path.exists(dest):

@@ -79,5 +79,5 @@ class ExchangeReleaseFeedback(Exchange):
 
             self.log.info("Releasing feedback for student '{}' on assignment '{}/{}/{}' ({})".format(
                 student_id, self.coursedir.course_id, self.coursedir.assignment_id, notebook_id, timestamp))
-            shutil.copy(html_file, dest)
+            shutil.copy(html_file, dest, follow_symlinks=False)
             self.log.info("Feedback released to: {}".format(dest))

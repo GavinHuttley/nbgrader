@@ -131,7 +131,7 @@ class Exchange(LoggingConfigurable):
         specified by the options coursedir.ignore, coursedir.include
         and coursedir.max_file_size.
         """
-        shutil.copytree(src, dest,
+        shutil.copytree(src, dest, symlinks=True,
                         ignore=ignore_patterns(exclude=self.coursedir.ignore,
                                                include=self.coursedir.include,
                                                max_file_size=self.coursedir.max_file_size,

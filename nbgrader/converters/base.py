@@ -247,7 +247,7 @@ class BaseConverter(LoggingConfigurable):
             if os.path.exists(path):
                 remove(path)
             self.log.info("Copying %s -> %s", filename, path)
-            shutil.copy(filename, path)
+            shutil.copy(filename, path, follow_symlinks=False)
 
     def set_permissions(self, assignment_id: str, student_id: str) -> None:
         self.log.info("Setting destination file permissions to %s", self.permissions)

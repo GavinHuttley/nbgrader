@@ -129,7 +129,7 @@ class Autograde(BaseConverter):
             if os.path.exists(dest):
                 os.remove(dest)
             self.log.info("Copying %s -> %s", filename, dest)
-            shutil.copy(filename, dest)
+            shutil.copy(filename, dest, follow_symlinks=False)
 
         # ignore notebooks that aren't in the database
         notebooks = []

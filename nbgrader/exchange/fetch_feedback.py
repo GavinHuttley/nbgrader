@@ -98,7 +98,7 @@ class ExchangeFetchFeedback(Exchange):
             self.log.debug("Copying feedback from {} to {}".format(feedbackpath, html_file))
             if os.path.exists(html_file):
                 self.log.debug("Overwriting existing feedback: {}".format(html_file))
-            shutil.copy(feedbackpath, html_file)
+            shutil.copy(feedbackpath, html_file, follow_symlinks=False)
             self.log.info("Fetched feedback: {}".format(html_file))
 
     def copy_files(self):

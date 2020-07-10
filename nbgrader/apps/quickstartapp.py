@@ -119,7 +119,7 @@ class QuickStartApp(NbGrader):
         self.log.info("Copying example from the user guide...")
         example = os.path.abspath(os.path.join(
             os.path.dirname(__file__), '..', 'docs', 'source', 'user_guide', 'source'))
-        shutil.copytree(example, os.path.join(course_path, "source"))
+        shutil.copytree(example, os.path.join(course_path, "source"), symlinks=True)
 
         # create the config file
         self.log.info("Generating example config file...")
