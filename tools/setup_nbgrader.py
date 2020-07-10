@@ -12,6 +12,7 @@ import string
 
 JUPYTER_ADMIN = 'jupyteradmin'
 ADMIN_PWD = 'password'
+HOME = "/home2" if os.path.exists("/home2") else "home"
 
 class CourseAlreadyExists(Exception):
     def __init__(self, *args):
@@ -126,7 +127,7 @@ WantedBy=multi-user.target
 """
 
 course_config_base="""c = get_config()
-c.CourseDirectory.root = '/home/{grader}/{course}'
+c.CourseDirectory.root = '/{HOME}/{grader}/{course}'
 c.CourseDirectory.course_id = '{course}'
 """
 
@@ -160,17 +161,17 @@ def get_service_repr(course, grader, port, token):
           'url': 'http://127.0.0.1:{}'.format(port),
           'command': [
               'jupyterhub-singleuser',
-              '--group=formgrade-{}'.format(course),
+              f'--group=formgrade-{course}',
               '--debug',
           ],
           'user': grader,
-          'cwd': '/home/{}'.format(grader),
-          'api_token': '{}'.format(token),
+          'cwd': f'{HOME}/{grader}',
+          'api_token': f'{token}',
     }  
     return repr(service)
 
 def get_course_config(grader, course):
-    return course_config_base.format(grader=grader, course=course)
+    return course_config_base.format(HOME=HOME, grader=grader, course=course)
 
 def get_next_port():
     lines = []
@@ -372,8 +373,8 @@ def add_student(args):
             '--lms-user-id={}'.format(args.lms_user_id)
             ]
     subprocess.run(command,
-               cwd='/home/{grader}/{course}'.format(grader=grader,course=course),
-               env={'HOME':'/home/{grader}'.format(grader=grader),
+               cwd='{HOME}/{grader}/{course}'.format(HOME=HOME,grader=grader,course=course),
+               env={'HOME': '{HOME}/{grader}'.format(HOME=HOME, grader=grader),
                     'USER':grader})
     
     if not already_exists :
@@ -531,4 +532,3 @@ def main():
 if __name__ == "__main__":
     # execute only if run as a script
     main()
-
