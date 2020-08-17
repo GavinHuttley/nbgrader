@@ -101,11 +101,14 @@ class Exchange(LoggingConfigurable):
         all_dirs = []
         for dirname, _, filenames in os.walk(dest):
             for filename in filenames:
-                os.chmod(os.path.join(dirname, filename), fileperms)
+                file_path = os.path.join(dirname, filename)
+                if not os.path.islink(file_path):
+                    os.chmod(file_path, fileperms)
             all_dirs.append(dirname)
 
         for dirname in all_dirs[::-1]:
-            os.chmod(dirname, dirperms)
+            if not os.path.islink(dirname):
+                os.chmod(dirname, dirperms)
 
     def ensure_root(self):
         """See if the exchange directory exists and is writable, fail if not."""
