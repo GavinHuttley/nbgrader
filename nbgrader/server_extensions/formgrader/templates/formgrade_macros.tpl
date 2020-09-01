@@ -16,6 +16,7 @@ var assignment_id = "{{ resources.assignment_id }}";
 var base_url = "{{ resources.base_url }}/formgrader";
 </script>
 
+<script src="{{ resources.base_url }}/formgrader/static/js/require.js"></script>
 <script src="{{ resources.base_url }}/formgrader/static/js/backbone_xsrf.js"></script>
 <script src="{{ resources.base_url }}/formgrader/static/js/formgrade_keyboardmanager.js"></script>
 <script src="{{ resources.base_url }}/formgrader/static/js/formgrade_models.js"></script>
